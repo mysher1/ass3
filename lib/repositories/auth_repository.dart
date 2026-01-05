@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/app_database.dart';
+import '../services/audio_service.dart';
 
 class AuthRepository {
   static const String _usersTable = 'users';
@@ -103,6 +104,11 @@ class AuthRepository {
 
   /// Sign out: clear locally stored login state
   Future<void> logout() async {
+    // Stop background music when logging out
+    try {
+      await AudioService.instance.stop();
+    } catch (_) {}
+
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_prefCurrentUserId);
     await sp.remove(_prefCurrentUsername);

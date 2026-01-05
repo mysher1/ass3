@@ -8,88 +8,167 @@ class MediaPage extends StatefulWidget {
   State<MediaPage> createState() => _MediaPageState();
 }
 
-class _MediaPageState extends State<MediaPage> {
-  final _audio = AudioService.instance;
+class _MediaPageState extends State<MediaPage> with WidgetsBindingObserver {
+  final AudioService _audio = AudioService.instance;
 
-  bool _playing = false;
-  double _volume = 0.6;
+  late final List<String> _tracks;
+
+  bool _isPlaying = false;
+  double _volume = AudioService.defaultVolume;
+  bool _autoPlay = AudioService.defaultAutoPlay;
+  String _selectedTrack = AudioService.defaultTrack;
 
   @override
   void initState() {
     super.initState();
-    _audio.init();
+    WidgetsBinding.instance.addObserver(this);
+
+    _tracks = <String>[
+      'audio/black.mp3',
+      'audio/Compass.mp3',
+      'audio/Glass.mp3',
+    ];
+
+    _initState();
   }
 
-  Future<void> _toggle() async {
-    if (_playing) {
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state == AppLifecycleState.resumed) {
+      setState(() {
+        _isPlaying = _audio.isPlaying;
+      });
+    }
+  }
+
+  Future<void> _initState() async {
+    await _audio.init();
+
+    final savedTrack = _audio.currentTrack;
+    if (savedTrack.isNotEmpty && !_tracks.contains(savedTrack)) {
+      _tracks.insert(0, savedTrack);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _selectedTrack = _tracks.contains(savedTrack)
+          ? savedTrack
+          : (_tracks.isNotEmpty ? _tracks.first : AudioService.defaultTrack);
+      _volume = _audio.volume;
+      _autoPlay = _audio.autoPlay;
+      _isPlaying = _audio.isPlaying;
+    });
+  }
+
+  Future<void> _onTrackChanged(String? value) async {
+    if (value == null) return;
+    await _audio.setTrack(value);
+    if (!mounted) return;
+    setState(() {
+      _selectedTrack = value;
+      _isPlaying = true;
+    });
+  }
+
+  Future<void> _togglePlay() async {
+    if (_isPlaying) {
       await _audio.pause();
     } else {
-      await _audio.playBgm();
+      await _audio.resumeOrPlayCurrent();
     }
     if (!mounted) return;
-    setState(() => _playing = !_playing);
+    setState(() => _isPlaying = !_isPlaying);
   }
 
   Future<void> _stop() async {
     await _audio.stop();
     if (!mounted) return;
-    setState(() => _playing = false);
+    setState(() => _isPlaying = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Media Player')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            const Icon(Icons.music_note_rounded, size: 72),
-            const SizedBox(height: 12),
-            const Text(
-              'Background Music (Asset)',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _toggle,
-                    icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
-                    label: Text(_playing ? 'Pause' : 'Play'),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Background Music',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Current: ${_selectedTrack.split('/').last}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedTrack,
+                decoration: const InputDecoration(
+                  labelText: 'Select Track',
+                  border: OutlineInputBorder(),
+                ),
+                items: _tracks
+                    .map(
+                      (t) => DropdownMenuItem(
+                        value: t,
+                        child: Text(t.split('/').last),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _onTrackChanged,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _togglePlay,
+                      icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
+                      label: Text(_isPlaying ? 'Pause' : 'Play'),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                IconButton.filledTonal(
-                  onPressed: _stop,
-                  icon: const Icon(Icons.stop),
-                ),
-              ],
-            ),
-            const SizedBox(height: 22),
-            Row(
-              children: [
-                const Icon(Icons.volume_down),
-                Expanded(
-                  child: Slider(
-                    value: _volume,
-                    onChanged: (v) async {
-                      setState(() => _volume = v);
-                      await _audio.setVolume(v);
-                    },
+                ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  const Icon(Icons.volume_down),
+                  Expanded(
+                    child: Slider(
+                      value: _volume,
+                      onChanged: (v) async {
+                        setState(() => _volume = v);
+                        await _audio.setVolume(v);
+                      },
+                    ),
                   ),
-                ),
-                const Icon(Icons.volume_up),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Tip: This page proves Multimedia integration (audio playback).',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+                  const Icon(Icons.volume_up),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Auto play on app start'),
+                value: _autoPlay,
+                onChanged: (v) async {
+                  await _audio.setAutoPlay(v);
+                  if (!mounted) return;
+                  setState(() => _autoPlay = v);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

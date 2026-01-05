@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../repositories/auth_repository.dart';
 import 'home_page.dart';
 import 'signup_page.dart';
+import '../services/audio_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -48,6 +49,9 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       if (!mounted) return;
+
+      // Restore & auto-play last selected background music (if enabled).
+      await AudioService.instance.restoreAndMaybeAutoPlay();
 
       // Success: go to Home (pushReplacement prevents going back to Login).
       await Navigator.pushReplacement(
@@ -131,7 +135,6 @@ class _LoginPageState extends State<LoginPage> {
                     children: [
                       _Header(theme: theme),
                       const SizedBox(height: 18),
-
                       Card(
                         elevation: 0.8,
                         shape: RoundedRectangleBorder(
@@ -156,8 +159,7 @@ class _LoginPageState extends State<LoginPage> {
                                     border: const OutlineInputBorder(),
                                     filled: true,
                                     fillColor: theme
-                                        .colorScheme
-                                        .surfaceContainerHighest
+                                        .colorScheme.surfaceContainerHighest
                                         .withOpacity(0.1),
                                   ),
                                   validator: (v) {
@@ -174,7 +176,6 @@ class _LoginPageState extends State<LoginPage> {
                                   },
                                 ),
                                 const SizedBox(height: 12),
-
                                 TextFormField(
                                   controller: _passwordCtrl,
                                   textInputAction: TextInputAction.done,
@@ -188,8 +189,7 @@ class _LoginPageState extends State<LoginPage> {
                                     border: const OutlineInputBorder(),
                                     filled: true,
                                     fillColor: theme
-                                        .colorScheme
-                                        .surfaceContainerHighest
+                                        .colorScheme.surfaceContainerHighest
                                         .withOpacity(0.1),
                                     suffixIcon: IconButton(
                                       tooltip: _obscure
@@ -215,7 +215,6 @@ class _LoginPageState extends State<LoginPage> {
                                   },
                                 ),
                                 const SizedBox(height: 14),
-
                                 SizedBox(
                                   height: 48,
                                   width: double.infinity,
@@ -236,18 +235,16 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                 ),
                                 const SizedBox(height: 12),
-
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(
                                       "Don't have an account?",
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                          ),
+                                      style:
+                                          theme.textTheme.bodyMedium?.copyWith(
+                                        color:
+                                            theme.colorScheme.onSurfaceVariant,
+                                      ),
                                     ),
                                     TextButton(
                                       onPressed: _loading ? null : _goSignup,
@@ -260,7 +257,6 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 16),
                       _TipCard(theme: theme),
                     ],

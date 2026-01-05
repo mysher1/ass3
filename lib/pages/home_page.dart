@@ -8,6 +8,7 @@ import '../widgets/memo_tile.dart';
 import 'login_page.dart';
 import 'memo_form_page.dart';
 import 'profile_page.dart';
+import 'media_page.dart';
 
 class HomePage extends StatefulWidget {
   final int userId;
@@ -208,6 +209,13 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _goMedia() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MediaPage()),
+    );
+  }
+
   List<Memo> get _filteredMemos {
     if (_keyword.isEmpty) return _memos;
     final k = _keyword.toLowerCase();
@@ -251,61 +259,75 @@ class _HomePageState extends State<HomePage> {
         label: const Text('New Memo'),
       ),
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _loadInitial,
-          child: _isInitialLoading
-              ? const _LoadingSkeleton()
-              : Column(
-                  children: [
-                    // Search bar (filters loaded items only)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          boxShadow: [
-                            BoxShadow(
-                              blurRadius: 16,
-                              offset: const Offset(0, 10),
-                              color: Colors.black.withOpacity(0.06),
-                            ),
-                          ],
-                        ),
-                        child: TextField(
-                          controller: _searchCtrl,
-                          textInputAction: TextInputAction.search,
-                          decoration: InputDecoration(
-                            hintText: 'Search title or content...',
-                            prefixIcon: const Icon(Icons.search_rounded),
-                            suffixIcon: _keyword.isEmpty
-                                ? null
-                                : IconButton(
-                                    tooltip: 'Clear',
-                                    onPressed: () => _searchCtrl.clear(),
-                                    icon: const Icon(Icons.close_rounded),
-                                  ),
-                            filled: true,
-                            fillColor: theme.colorScheme.surface,
-                            border: OutlineInputBorder(
+        child: Stack(
+          children: [
+            RefreshIndicator(
+              onRefresh: _loadInitial,
+              child: _isInitialLoading
+                  ? const _LoadingSkeleton()
+                  : Column(
+                      children: [
+                        // Search bar (filters loaded items only)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                          child: Container(
+                            decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(18),
-                              borderSide: BorderSide.none,
+                              boxShadow: [
+                                BoxShadow(
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 10),
+                                  color: Colors.black.withOpacity(0.06),
+                                ),
+                              ],
+                            ),
+                            child: TextField(
+                              controller: _searchCtrl,
+                              textInputAction: TextInputAction.search,
+                              decoration: InputDecoration(
+                                hintText: 'Search title or content...',
+                                prefixIcon: const Icon(Icons.search_rounded),
+                                suffixIcon: _keyword.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        tooltip: 'Clear',
+                                        onPressed: () => _searchCtrl.clear(),
+                                        icon: const Icon(Icons.close_rounded),
+                                      ),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
 
-                    Expanded(
-                      child: _memos.isEmpty
-                          ? _EmptyState(onCreate: _openAdd)
-                          : (list.isEmpty
-                              ? _NoSearchResult(
-                                  onClear: () => _searchCtrl.clear(),
-                                )
-                              : _buildList(list)),
+                        Expanded(
+                          child: _memos.isEmpty
+                              ? _EmptyState(onCreate: _openAdd)
+                              : (list.isEmpty
+                                  ? _NoSearchResult(
+                                      onClear: () => _searchCtrl.clear(),
+                                    )
+                                  : _buildList(list)),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+            ),
+            Positioned(
+              left: 16,
+              bottom: 16,
+              child: FloatingActionButton.extended(
+                heroTag: 'music_fab',
+                onPressed: _goMedia,
+                icon: const Icon(Icons.music_note_rounded),
+                label: const Text('Music'),
+              ),
+            ),
+          ],
         ),
       ),
     );

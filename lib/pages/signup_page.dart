@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 
 import '../repositories/auth_repository.dart';
+import 'home_page.dart';
+import '../services/audio_service.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -49,10 +51,23 @@ class _SignupPageState extends State<SignupPage> {
         confirmPassword: confirm,
       );
 
+      if (!mounted) return; // Success: auto sign-in and go to Home
+      final int userId = await _authRepo.login(
+        username: username,
+        password: password,
+      );
+
       if (!mounted) return;
 
-      // Success: return to LoginPage, notify previous page
-      Navigator.pop(context, true);
+      // Restore & auto-play last selected background music (if enabled).
+      await AudioService.instance.restoreAndMaybeAutoPlay();
+
+      await Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HomePage(userId: userId, username: username),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       _showSnack(_friendlyError(e));
@@ -119,7 +134,6 @@ class _SignupPageState extends State<SignupPage> {
                     children: [
                       _Header(theme: theme),
                       const SizedBox(height: 14),
-
                       Card(
                         elevation: 0.8,
                         shape: RoundedRectangleBorder(
@@ -143,8 +157,7 @@ class _SignupPageState extends State<SignupPage> {
                                     border: const OutlineInputBorder(),
                                     filled: true,
                                     fillColor: theme
-                                        .colorScheme
-                                        .surfaceContainerHighest
+                                        .colorScheme.surfaceContainerHighest
                                         .withOpacity(0.45),
                                   ),
                                   validator: (v) {
@@ -162,7 +175,6 @@ class _SignupPageState extends State<SignupPage> {
                                   },
                                 ),
                                 const SizedBox(height: 12),
-
                                 TextFormField(
                                   controller: _passwordCtrl,
                                   textInputAction: TextInputAction.next,
@@ -174,8 +186,7 @@ class _SignupPageState extends State<SignupPage> {
                                     border: const OutlineInputBorder(),
                                     filled: true,
                                     fillColor: theme
-                                        .colorScheme
-                                        .surfaceContainerHighest
+                                        .colorScheme.surfaceContainerHighest
                                         .withOpacity(0.35),
                                     suffixIcon: IconButton(
                                       tooltip: _obscure1
@@ -203,7 +214,6 @@ class _SignupPageState extends State<SignupPage> {
                                   },
                                 ),
                                 const SizedBox(height: 12),
-
                                 TextFormField(
                                   controller: _confirmCtrl,
                                   textInputAction: TextInputAction.done,
@@ -219,8 +229,7 @@ class _SignupPageState extends State<SignupPage> {
                                     border: const OutlineInputBorder(),
                                     filled: true,
                                     fillColor: theme
-                                        .colorScheme
-                                        .surfaceContainerHighest
+                                        .colorScheme.surfaceContainerHighest
                                         .withOpacity(0.35),
                                     suffixIcon: IconButton(
                                       tooltip: _obscure2
@@ -248,7 +257,6 @@ class _SignupPageState extends State<SignupPage> {
                                   },
                                 ),
                                 const SizedBox(height: 14),
-
                                 SizedBox(
                                   height: 48,
                                   width: double.infinity,
@@ -268,19 +276,17 @@ class _SignupPageState extends State<SignupPage> {
                                     ),
                                   ),
                                 ),
-
                                 const SizedBox(height: 12),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(
                                       'Already have an account?',
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                          ),
+                                      style:
+                                          theme.textTheme.bodyMedium?.copyWith(
+                                        color:
+                                            theme.colorScheme.onSurfaceVariant,
+                                      ),
                                     ),
                                     TextButton(
                                       onPressed: _loading
@@ -295,7 +301,6 @@ class _SignupPageState extends State<SignupPage> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 14),
                       _HintCard(theme: theme),
                     ],

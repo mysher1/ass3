@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
 import 'repositories/auth_repository.dart';
+import 'services/audio_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,9 +25,7 @@ class MyApp extends StatelessWidget {
         colorSchemeSeed: Colors.deepPurple,
         brightness: Brightness.light,
         scaffoldBackgroundColor: const Color(0xFFF6F2FF),
-
         appBarTheme: const AppBarTheme(elevation: 0, scrolledUnderElevation: 0),
-
         cardTheme: CardThemeData(
           elevation: 0.8,
           shape: RoundedRectangleBorder(
@@ -34,7 +33,6 @@ class MyApp extends StatelessWidget {
           ),
           margin: EdgeInsets.zero,
         ),
-
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
@@ -85,6 +83,11 @@ class _BootstrapPageState extends State<_BootstrapPage> {
     try {
       final userId = await _authRepo.getCurrentUserId();
       final username = await _authRepo.getCurrentUsername();
+
+      // Auto-restore & play last selected background music after login
+      if (userId != null && username != null && username.trim().isNotEmpty) {
+        await AudioService.instance.restoreAndMaybeAutoPlay();
+      }
 
       if (!mounted) return;
       setState(() {
