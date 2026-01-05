@@ -24,6 +24,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/location_point.dart';
 import '../repositories/location_repository.dart';
+import '../repositories/memo_repository.dart';
 
 class MapPage extends StatefulWidget {
   final int userId;
@@ -38,6 +39,10 @@ class MapPage extends StatefulWidget {
 
 class _MapPageState extends State<MapPage> {
   final _repo = LocationRepository();
+  final _memoRepo = MemoRepository();
+
+  // Locations created in this MapPage session (not yet linked to a memo).
+  final Set<int> _sessionPointIds = <int>{};
 
   final _mapController = MapController();
 
@@ -70,9 +75,29 @@ class _MapPageState extends State<MapPage> {
     setState(() => _loading = true);
     try {
       final list = await _repo.getPointsByUser(widget.userId);
+
+      // Only keep markers that are still referenced by existing memos
+      // (so pins from "removed" locations won't stay on the picker map).
+      final memos = await _memoRepo.getMemosByUser(widget.userId);
+      final activeIds = memos
+          .where((m) => m.locationId != null)
+          .map((m) => m.locationId!)
+          .toSet();
+
+      // Keep session-created points & currently selected point visible too.
+      activeIds.addAll(_sessionPointIds);
+      final selectedId = _selectedSavedPoint?.id;
+      if (selectedId != null) activeIds.add(selectedId);
+
+      final filtered = list.where((p) {
+        final id = p.id;
+        if (id == null) return false;
+        return activeIds.contains(id);
+      }).toList();
+
       if (!mounted) return;
       setState(() {
-        _points = list;
+        _points = filtered;
         _loading = false;
       });
     } catch (e) {
@@ -254,6 +279,10 @@ class _MapPageState extends State<MapPage> {
         label: resolved,
         createdAt: now,
       );
+
+      // Track this point in current session so it stays visible even before
+      // it is linked to a memo.
+      _sessionPointIds.add(newId);
 
       // Refresh list for marker display
       await _loadPoints();

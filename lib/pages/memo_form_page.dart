@@ -95,6 +95,7 @@ class _MemoFormPageState extends State<MemoFormPage> {
     setState(() {
       _locationId = null;
       _locationLabel = null;
+      _changed = true;
     });
     _changed = true;
 
