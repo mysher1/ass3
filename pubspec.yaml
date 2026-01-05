@@ -1,33 +1,36 @@
-name: ass2
-description: "SWE311 Assignment 2 - Private Memo (SQLite CRUD)"
+name: private_memo
+description: A lightweight mobile application for secure personal memos.
 publish_to: 'none'
 
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.9.0 <4.0.0"
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^1.0.6
 
-  # SQLite database
-  sqflite: ^2.3.3
+  # Local database
+  sqflite: ^2.3.0
   path: ^1.9.0
 
-  # Local login state
-  shared_preferences: ^2.2.3
+  # Map (OpenStreetMap)
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
 
-  # Password hashing (SHA-256)
-  crypto: ^3.0.3
+  # Location service
+  geolocator: ^10.1.0
+
+  shared_preferences: ^2.2.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  flutter_lints: ^6.0.0
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true

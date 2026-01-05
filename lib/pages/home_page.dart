@@ -1,6 +1,7 @@
 // lib/pages/home_page.dart
 import 'package:flutter/material.dart';
 
+import '../db/app_database.dart';
 import '../models/memo.dart';
 import '../repositories/memo_repository.dart';
 import '../widgets/memo_tile.dart';
@@ -19,7 +20,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final MemoRepository _memoRepo = MemoRepository();
+  late final MemoRepository _memoRepo;
 
   final ScrollController _scrollController = ScrollController();
 
@@ -38,6 +39,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _memoRepo = MemoRepository(AppDatabase.instance);
     _loadInitial();
 
     _scrollController.addListener(() {
@@ -297,10 +299,10 @@ class _HomePageState extends State<HomePage> {
                       child: _memos.isEmpty
                           ? _EmptyState(onCreate: _openAdd)
                           : (list.isEmpty
-                                ? _NoSearchResult(
-                                    onClear: () => _searchCtrl.clear(),
-                                  )
-                                : _buildList(list)),
+                              ? _NoSearchResult(
+                                  onClear: () => _searchCtrl.clear(),
+                                )
+                              : _buildList(list)),
                     ),
                   ],
                 ),
@@ -353,8 +355,8 @@ class _HomePageState extends State<HomePage> {
               child: Text(
                 'No more items',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ),
           );

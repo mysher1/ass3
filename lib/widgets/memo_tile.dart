@@ -22,6 +22,9 @@ class MemoTile extends StatelessWidget {
     final content = (memo.content ?? '').trim();
     final hasContent = content.isNotEmpty;
 
+    final locationLabel = (memo.locationLabel ?? '').trim();
+    final hasLocation = locationLabel.isNotEmpty;
+
     return Card(
       // Let global CardThemeData do most of the work.
       child: InkWell(
@@ -32,15 +35,13 @@ class MemoTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _LeadingIcon(title: title),
+              _AvatarCircle(title: title),
               const SizedBox(width: 12),
-
-              // Main content
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title row + delete
+                    // Title + actions
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -51,7 +52,6 @@ class MemoTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w800,
-                              letterSpacing: 0.1,
                             ),
                           ),
                         ),
@@ -95,10 +95,14 @@ class MemoTile extends StatelessWidget {
 
                     const SizedBox(height: 10),
 
-                    // Time chip
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: _TimeChip(text: _formatTime(memo.updatedAt)),
+                    // Meta chips (time + optional location)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _TimeChip(text: _formatTime(memo.updatedAt)),
+                        if (hasLocation) _LocationChip(text: locationLabel),
+                      ],
                     ),
                   ],
                 ),
@@ -110,22 +114,23 @@ class MemoTile extends StatelessWidget {
     );
   }
 
-  /// Format time
-  static String _formatTime(String raw) {
+  String _formatTime(String iso) {
+    // Keep it simple and consistent with your existing string-based timestamps.
+    // If parsing fails, fall back to the raw value.
     try {
-      final dt = DateTime.parse(raw).toLocal();
+      final dt = DateTime.parse(iso).toLocal();
       String two(int n) => n.toString().padLeft(2, '0');
-      return '${dt.year}-${two(dt.month)}-${two(dt.day)} '
-          '${two(dt.hour)}:${two(dt.minute)}';
+      return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
     } catch (_) {
-      return raw;
+      return iso;
     }
   }
 }
 
-class _LeadingIcon extends StatelessWidget {
+class _AvatarCircle extends StatelessWidget {
   final String title;
-  const _LeadingIcon({required this.title});
+
+  const _AvatarCircle({required this.title});
 
   @override
   Widget build(BuildContext context) {
@@ -141,21 +146,13 @@ class _LeadingIcon extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            blurRadius: 10,
-            offset: const Offset(0, 6),
-            color: Colors.black.withOpacity(0.06),
-          ),
-        ],
       ),
-      child: Center(
-        child: Text(
-          letter,
-          style: theme.textTheme.titleLarge?.copyWith(
-            color: fg,
-            fontWeight: FontWeight.w900,
-          ),
+      alignment: Alignment.center,
+      child: Text(
+        letter,
+        style: theme.textTheme.titleMedium?.copyWith(
+          color: fg,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );
@@ -194,6 +191,44 @@ class _TimeChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             text,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationChip extends StatelessWidget {
+  final String text;
+  const _LocationChip({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.place_rounded,
+            size: 16,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w600,

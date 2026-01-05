@@ -1,95 +1,158 @@
 // lib/pages/map_page.dart
-//
-// OpenStreetMap (via flutter_map) page.
-// Supports two modes:
-// 1) Manage mode (default): view/add/delete saved locations for the user.
-// 2) Select mode: pick a location for a memo and return it via Navigator.pop().
-//
-// Returned value in select mode:
-// - Existing saved location: LocationPoint
-// - New location created from map tap: LocationPoint (saved to DB first)
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../db/app_database.dart';
 import '../models/location_point.dart';
 import '../repositories/location_repository.dart';
 
 class MapPage extends StatefulWidget {
   final int userId;
-
-  /// If true, user can pick a location and this page will `pop()` a LocationPoint.
-  final bool selectMode;
-
-  /// Optional: pre-select a saved location when opening the page.
-  final int? initialSelectedLocationId;
-
-  const MapPage({
-    super.key,
-    required this.userId,
-    this.selectMode = false,
-    this.initialSelectedLocationId,
-  });
+  const MapPage({super.key, required this.userId});
 
   @override
   State<MapPage> createState() => _MapPageState();
 }
 
 class _MapPageState extends State<MapPage> {
-  late final LocationRepository _repo;
-  final MapController _mapController = MapController();
+  final _repo = LocationRepository();
+  final _mapController = MapController();
 
   bool _loading = true;
   bool _locating = false;
 
   List<LocationPoint> _points = [];
 
-  // Default center: Kuala Lumpur-ish
+  // Default: Kuala Lumpur-ish (since you said Malaysia)
   LatLng _center = const LatLng(3.1390, 101.6869);
   double _zoom = 13;
-
-  // Selection / creation state
-  LocationPoint? _selectedSavedPoint;
-  LatLng? _tempPickedLatLng; // picked on map but not saved yet
 
   @override
   void initState() {
     super.initState();
-    _repo = LocationRepository(AppDatabase.instance);
-    _init();
+    _loadPoints();
   }
 
-  Future<void> _init() async {
-    await _refreshPoints();
-
-    // Try to preselect if requested
-    if (widget.initialSelectedLocationId != null) {
-      final match = _points
-          .where((p) => p.id == widget.initialSelectedLocationId)
-          .toList();
-      if (match.isNotEmpty) {
-        _selectedSavedPoint = match.first;
-        _center = LatLng(_selectedSavedPoint!.lat, _selectedSavedPoint!.lng);
-        _zoom = 15;
-      }
+  Future<void> _loadPoints() async {
+    setState(() => _loading = true);
+    try {
+      final list = await _repo.getPointsByUser(widget.userId);
+      if (!mounted) return;
+      setState(() {
+        _points = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showSnack('Load failed: $e');
     }
-
-    // Try to move to current position, but don't block the screen
-    // (especially important if permission is denied).
-    _moveToCurrentPosition(silent: true);
-
-    if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _refreshPoints() async {
-    final res = await _repo.getLocationsByUser(widget.userId);
+  void _showSnack(String msg) {
     if (!mounted) return;
-    setState(() {
-      _points = res;
-    });
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _goToMyLocation() async {
+    if (_locating) return;
+    setState(() => _locating = true);
+
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) {
+        throw Exception('Location service is disabled.');
+      }
+
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied) {
+        throw Exception('Location permission denied.');
+      }
+      if (perm == LocationPermission.deniedForever) {
+        throw Exception('Location permission permanently denied.');
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      final me = LatLng(pos.latitude, pos.longitude);
+
+      setState(() {
+        _center = me;
+        _zoom = math.max(_zoom, 16);
+      });
+
+      _mapController.move(_center, _zoom);
+    } catch (e) {
+      _showSnack('Location failed: $e');
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  Future<void> _addPointAt(LatLng p) async {
+    final label = await _askLabel();
+    if (!mounted) return;
+
+    try {
+      await _repo.createPoint(
+        userId: widget.userId,
+        lat: p.latitude,
+        lng: p.longitude,
+        label: (label ?? ''),
+      );
+      await _loadPoints();
+      _showSnack('Saved');
+    } catch (e) {
+      _showSnack('Save failed: $e');
+    }
+  }
+
+  Future<String?> _askLabel() async {
+    final ctrl = TextEditingController();
+    final theme = Theme.of(context);
+
+    final res = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Save location'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            labelText: 'Label (optional)',
+            hintText: 'e.g. Home, Cafe, Parking',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => Navigator.pop(ctx, ctrl.text.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    // avoid unused theme warning in some setups
+    // ignore: unnecessary_statements
+    theme;
+
+    return res;
   }
 
   Future<void> _deletePoint(LocationPoint p) async {
@@ -99,7 +162,9 @@ class _MapPageState extends State<MapPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete this location?'),
-        content: Text('This will delete "${p.displayLabel}".'),
+        content: Text(
+          'This will delete "${(p.label ?? 'Untitled').trim().isEmpty ? 'Untitled' : p.label}".',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -115,271 +180,210 @@ class _MapPageState extends State<MapPage> {
 
     if (ok != true) return;
 
-    await _repo.deleteLocation(p.id!);
-    if (_selectedSavedPoint?.id == p.id) _selectedSavedPoint = null;
-
-    await _refreshPoints();
-    if (mounted) setState(() {});
-  }
-
-  Future<String?> _askLabel({String? initial}) async {
-    final ctrl = TextEditingController(text: initial ?? '');
-    final res = await showDialog<String?>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Location name'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'e.g., Library / Home / KLCC',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, null),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final v = ctrl.text.trim();
-              Navigator.pop(ctx, v.isEmpty ? null : v);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    return res;
-  }
-
-  Future<void> _moveToCurrentPosition({bool silent = false}) async {
     try {
-      if (!silent) setState(() => _locating = true);
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        if (!silent && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permission denied.')),
-          );
-        }
-        return;
-      }
-
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      final here = LatLng(pos.latitude, pos.longitude);
-
-      if (!mounted) return;
-      setState(() {
-        _center = here;
-        _zoom = 16;
-      });
-
-      _mapController.move(here, _zoom);
-    } catch (_) {
-      if (!silent && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to get current location.')),
-        );
-      }
-    } finally {
-      if (!silent && mounted) setState(() => _locating = false);
+      await _repo.deletePoint(pointId: p.id!, userId: widget.userId);
+      await _loadPoints();
+      _showSnack('Deleted');
+    } catch (e) {
+      _showSnack('Delete failed: $e');
     }
   }
 
-  Future<void> _createLocationAt(LatLng latLng) async {
-    final label = await _askLabel();
-    if (label == null) return;
-
-    final now = DateTime.now().toUtc().toIso8601String();
-    final point = LocationPoint(
-      id: null,
-      userId: widget.userId,
-      lat: latLng.latitude,
-      lng: latLng.longitude,
-      label: label,
-      createdAt: now,
-    );
-
-    final newId = await _repo.createLocation(point);
-    final saved = point.copyWith(id: newId);
-
-    await _refreshPoints();
-
-    if (!mounted) return;
-    setState(() {
-      _selectedSavedPoint = saved;
-      _tempPickedLatLng = null;
-    });
-
-    // In select mode, you may want to immediately return after creating:
-    // but it's nicer UX to let them confirm. We'll keep it selected.
+  void _flyToPoint(LocationPoint p) {
+    final latLng = LatLng(p.lat, p.lng);
+    _mapController.move(latLng, math.max(_zoom, 16));
   }
 
-  void _onMapTap(TapPosition tapPosition, LatLng latLng) {
-    if (!widget.selectMode) {
-      // In manage mode, tap creates a new location.
-      _createLocationAt(latLng);
-      return;
-    }
-
-    // In select mode, tap picks a temp location (not saved yet)
-    setState(() {
-      _tempPickedLatLng = latLng;
-      _selectedSavedPoint = null;
-    });
-  }
-
-  List<Marker> _buildMarkers() {
-    final markers = <Marker>[];
-
-    for (final p in _points) {
-      final isSelected =
-          _selectedSavedPoint?.id != null && _selectedSavedPoint!.id == p.id;
-
-      markers.add(
-        Marker(
-          point: LatLng(p.lat, p.lng),
-          width: 44,
-          height: 44,
-          child: GestureDetector(
-            onTap: () {
-              setState(() {
-                _selectedSavedPoint = p;
-                _tempPickedLatLng = null;
-              });
-            },
-            onLongPress: widget.selectMode ? null : () => _deletePoint(p),
+  List<Marker> _buildMarkers(ThemeData theme) {
+    return _points.map((p) {
+      return Marker(
+        point: LatLng(p.lat, p.lng),
+        width: 44,
+        height: 44,
+        child: GestureDetector(
+          onTap: () => _openPointSheet(p),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.95),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: theme.colorScheme.surface, width: 3),
+              boxShadow: [
+                BoxShadow(
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
+                  color: Colors.black.withOpacity(0.18),
+                ),
+              ],
+            ),
             child: Icon(
-              Icons.location_on,
-              size: 40,
-              color: isSelected ? Colors.red : Colors.blue,
+              Icons.place_rounded,
+              color: theme.colorScheme.onPrimary,
+              size: 22,
             ),
           ),
         ),
       );
-    }
-
-    if (_tempPickedLatLng != null) {
-      markers.add(
-        Marker(
-          point: _tempPickedLatLng!,
-          width: 44,
-          height: 44,
-          child: const Icon(Icons.place, size: 40, color: Colors.deepOrange),
-        ),
-      );
-    }
-
-    return markers;
+    }).toList();
   }
 
-  Future<void> _confirmSelection() async {
-    // Case 1: selected an existing saved point -> return it directly
-    if (_selectedSavedPoint != null) {
-      Navigator.pop(context, _selectedSavedPoint);
-      return;
-    }
+  void _openPointSheet(LocationPoint p) {
+    final theme = Theme.of(context);
+    final title =
+        (p.label ?? '').trim().isEmpty ? 'Untitled' : (p.label!).trim();
 
-    // Case 2: picked a temp point -> ask for label, save, then return
-    if (_tempPickedLatLng != null) {
-      final label = await _askLabel();
-      if (label == null) return;
-
-      final now = DateTime.now().toUtc().toIso8601String();
-      final point = LocationPoint(
-        id: null,
-        userId: widget.userId,
-        lat: _tempPickedLatLng!.latitude,
-        lng: _tempPickedLatLng!.longitude,
-        label: label,
-        createdAt: now,
-      );
-
-      final newId = await _repo.createLocation(point);
-      final saved = point.copyWith(id: newId);
-
-      Navigator.pop(context, saved);
-      return;
-    }
-
-    // Nothing selected
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please pick a location on the map.')),
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Lat: ${p.lat.toStringAsFixed(6)}\nLng: ${p.lng.toStringAsFixed(6)}',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _flyToPoint(p);
+                      },
+                      icon: const Icon(Icons.my_location_rounded),
+                      label: const Text('Go to'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _deletePoint(p);
+                      },
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: const Text('Delete'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.selectMode ? 'Select Location' : 'My Locations';
-
-    final canConfirm =
-        widget.selectMode &&
-        (_selectedSavedPoint != null || _tempPickedLatLng != null);
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
+        title: const Text('Map'),
         actions: [
           IconButton(
             tooltip: 'My location',
-            onPressed: _locating ? null : () => _moveToCurrentPosition(),
+            onPressed: _locating ? null : _goToMyLocation,
             icon: _locating
                 ? const SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.my_location),
+                : const Icon(Icons.my_location_rounded),
+          ),
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loadPoints,
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: _center,
-                initialZoom: _zoom,
-                onTap: _onMapTap,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.private_memo',
-                ),
-                MarkerLayer(markers: _buildMarkers()),
-              ],
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _center,
+              initialZoom: _zoom,
+              onLongPress: (tapPos, latLng) => _addPointAt(latLng),
             ),
-      bottomNavigationBar: widget.selectMode
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: FilledButton.icon(
-                  onPressed: canConfirm ? _confirmSelection : null,
-                  icon: const Icon(Icons.check),
-                  label: const Text('Use this location'),
-                ),
+            children: [
+              TileLayer(
+                // OpenStreetMap tiles
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.private_memo',
               ),
-            )
-          : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  'Tip: Tap on the map to add a new location. Long-press a marker to delete.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                  textAlign: TextAlign.center,
+              MarkerLayer(markers: _buildMarkers(theme)),
+            ],
+          ),
+
+          // a small hint overlay
+          Positioned(
+            left: 12,
+            right: 12,
+            top: 12,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.95,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface.withOpacity(0.92),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.45),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.touch_app_rounded,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Tip: Long-press on the map to save a location.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      if (_loading)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
+          ),
+        ],
+      ),
     );
   }
 }
