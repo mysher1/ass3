@@ -23,7 +23,7 @@ class MemoTile extends StatelessWidget {
     final hasContent = content.isNotEmpty;
 
     final locationLabel = (memo.locationLabel ?? '').trim();
-    final hasLocation = locationLabel.isNotEmpty;
+    final hasLocation = memo.locationId != null;
 
     return Card(
       // Let global CardThemeData do most of the work.
@@ -101,7 +101,11 @@ class MemoTile extends StatelessWidget {
                       runSpacing: 8,
                       children: [
                         _TimeChip(text: _formatTime(memo.updatedAt)),
-                        if (hasLocation) _LocationChip(text: locationLabel),
+                        if (hasLocation)
+                          _LocationChip(
+                              text: locationLabel.isNotEmpty
+                                  ? locationLabel
+                                  : 'Location'),
                       ],
                     ),
                   ],

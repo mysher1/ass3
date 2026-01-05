@@ -1,27 +1,25 @@
 // lib/repositories/location_repository.dart
 //
-// Location repository (SQLite).
+// SQLite repository for the `locations` table.
 //
-// This version is deliberately BACKWARD-COMPATIBLE with multiple MapPage variants.
+// DB columns (from app_database.dart):
+//   id, userId, label, latitude, longitude, createdAt
 //
-// It supports BOTH styles:
+// This repository intentionally supports multiple calling styles because
+// different pages in your project use different method signatures.
 //
-// A) Newer API (object-based):
+// Supported APIs:
+//
+// 1) Object-based (recommended):
 //   - createLocation(LocationPoint point)
 //   - getLocationsByUser(int userId)
 //   - deleteLocation(int id)
 //
-// B) Older/alternate API used by some MapPage implementations:
+// 2) Primitive-arg compatibility (used by some MapPage versions):
 //   - LocationRepository() with NO args
 //   - getPointsByUser(int userId)
 //   - createPoint({required int userId, required double lat, required double lng, required String label})
-//     (Some code may pass label as String?; adjust in MapPage if needed.)
 //   - deletePoint({required int pointId, required int userId})
-//
-// Why this file exists:
-// - Your app_database.dart defines locations columns as: userId, label, latitude, longitude, createdAt.
-// - Some older MapPage code creates points by passing primitive args (userId/lat/lng/label).
-// - Newer code passes a LocationPoint object.
 
 import 'package:sqflite/sqflite.dart';
 
@@ -31,15 +29,15 @@ import '../models/location_point.dart';
 class LocationRepository {
   final AppDatabase _db;
 
-  /// Preferred: pass AppDatabase (useful for testing)
-  /// Backward-compatible: allow zero-arg constructor which uses AppDatabase.instance
+  /// Backward-compatible: allow zero-arg constructor (uses singleton).
+  /// Also allow passing a custom AppDatabase for tests.
   LocationRepository([AppDatabase? db]) : _db = db ?? AppDatabase.instance;
 
-  // ---------- New API (object-based) ----------
+  // ---------- Recommended (object-based) ----------
 
   Future<int> createLocation(LocationPoint point) async {
     final db = await _db.database;
-    return await db.insert(
+    return db.insert(
       'locations',
       point.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -48,12 +46,15 @@ class LocationRepository {
 
   Future<List<LocationPoint>> getLocationsByUser(int userId) async {
     final db = await _db.database;
+
+    // Avoid old/invalid rows where latitude/longitude might be NULL (pre-migration data).
     final result = await db.query(
       'locations',
-      where: 'userId = ?',
+      where: 'userId = ? AND latitude IS NOT NULL AND longitude IS NOT NULL',
       whereArgs: [userId],
       orderBy: 'createdAt DESC',
     );
+
     return result.map((row) => LocationPoint.fromMap(row)).toList();
   }
 
@@ -71,21 +72,18 @@ class LocationRepository {
 
   Future<int> deleteLocation(int id) async {
     final db = await _db.database;
-    return await db.delete(
+    return db.delete(
       'locations',
       where: 'id = ?',
       whereArgs: [id],
     );
   }
 
-  // ---------- Compatibility API (primitive-arg based) ----------
+  // ---------- Compatibility (primitive-arg based) ----------
 
-  /// Alias used by some MapPage code: fetch user's saved points
   Future<List<LocationPoint>> getPointsByUser(int userId) =>
       getLocationsByUser(userId);
 
-  /// Some MapPage code calls createPoint with named parameters rather than a LocationPoint.
-  /// We create a LocationPoint internally and save it.
   Future<int> createPoint({
     required int userId,
     required double lat,
@@ -104,12 +102,11 @@ class LocationRepository {
     return createLocation(point);
   }
 
-  /// Some MapPage code calls deletePoint(pointId: ..., userId: ...)
-  /// userId is not needed for deletion; we keep it for compatibility.
   Future<int> deletePoint({
     required int pointId,
     required int userId,
   }) async {
+    // userId is not needed; kept only for compatibility with older calls
     return deleteLocation(pointId);
   }
 }
