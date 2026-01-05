@@ -88,6 +88,7 @@ class _MemoFormPageState extends State<MemoFormPage> {
     setState(() {
       _locationId = result.id;
       _locationLabel = result.displayLabel;
+      _changed = true;
     });
   }
 
@@ -97,7 +98,6 @@ class _MemoFormPageState extends State<MemoFormPage> {
       _locationLabel = null;
       _changed = true;
     });
-    _changed = true;
 
     // Persist immediately for existing memo so the location won't "come back" after reopening.
     if (widget.memo != null) {
@@ -107,6 +107,7 @@ class _MemoFormPageState extends State<MemoFormPage> {
         clearLocation: true,
       );
       await _memoRepo.updateMemo(updated);
+      _changed = true;
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -160,6 +161,7 @@ class _MemoFormPageState extends State<MemoFormPage> {
         clearLocation: _locationId == null,
       );
       await _memoRepo.updateMemo(updatedMemo);
+      _changed = true;
     }
 
     if (!mounted) return;

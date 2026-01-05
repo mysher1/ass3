@@ -110,4 +110,32 @@ class AppDatabase {
       );
     }
   }
+
+  /// Delete a user account safely by removing dependent rows first.
+  /// This avoids FOREIGN KEY constraint failures even without ON DELETE CASCADE.
+  Future<void> deleteUserAccount(int userId) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // Delete memos first (they may reference locations)
+      await txn.delete(
+        'memos',
+        where: 'userId = ?',
+        whereArgs: [userId],
+      );
+
+      // Delete locations owned by this user
+      await txn.delete(
+        'locations',
+        where: 'userId = ?',
+        whereArgs: [userId],
+      );
+
+      // Finally delete the user record
+      await txn.delete(
+        'users',
+        where: 'id = ?',
+        whereArgs: [userId],
+      );
+    });
+  }
 }

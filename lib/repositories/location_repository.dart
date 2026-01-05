@@ -106,7 +106,11 @@ class LocationRepository {
     required int pointId,
     required int userId,
   }) async {
-    // userId is not needed; kept only for compatibility with older calls
-    return deleteLocation(pointId);
+    final db = await _db.database;
+    return db.delete(
+      'locations',
+      where: 'id = ? AND userId = ?',
+      whereArgs: [pointId, userId],
+    );
   }
 }

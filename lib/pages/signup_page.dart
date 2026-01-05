@@ -22,6 +22,7 @@ class _HomeWithAutoplayState extends State<_HomeWithAutoplay> {
     // Start/restore background music after Home is mounted to reduce
     // no-sound issues during route transitions.
     Future.microtask(() async {
+      if (!mounted) return;
       await AudioService.instance.restoreAndMaybeAutoPlay();
     });
   }

@@ -112,6 +112,12 @@ class AuthRepository {
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_prefCurrentUserId);
     await sp.remove(_prefCurrentUsername);
+
+    // Extra safety: if an interruption happened during the first stop attempt,
+    // try once more after state is cleared.
+    try {
+      await AudioService.instance.stop();
+    } catch (_) {}
   }
 
   /// Get current logged-in user id

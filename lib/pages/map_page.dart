@@ -52,6 +52,7 @@ class _MapPageState extends State<MapPage> {
   // Map view state
   LatLng _center = const LatLng(3.1390, 101.6869); // default: Kuala Lumpur-ish
   double _zoom = 15;
+  bool _didAutoCenter = false;
 
   // Saved points from DB
   List<LocationPoint> _points = [];
@@ -68,7 +69,6 @@ class _MapPageState extends State<MapPage> {
   void initState() {
     super.initState();
     _loadPoints();
-    _goToMyLocation(); // best effort
   }
 
   Future<void> _loadPoints() async {
@@ -100,6 +100,19 @@ class _MapPageState extends State<MapPage> {
         _points = filtered;
         _loading = false;
       });
+
+      // Auto-center once: if there is at least one active marker (i.e., memo still has a location),
+      // keep the map focused on that marker. Only when there are no markers do we fall back to default/my-location.
+      if (!_didAutoCenter) {
+        _didAutoCenter = true;
+        if (filtered.isNotEmpty) {
+          final p = filtered.first;
+          _flyTo(LatLng(p.lat, p.lng), math.max(_zoom, 16));
+        } else {
+          // No active pins -> optionally go to current location (best effort). If this fails, we stay at default center.
+          _goToMyLocation();
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);

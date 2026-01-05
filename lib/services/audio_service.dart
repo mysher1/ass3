@@ -1,5 +1,6 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 
 /// Background music service (singleton).
 ///
@@ -29,6 +30,13 @@ class AudioService {
   final AudioPlayer _player = AudioPlayer();
   bool _inited = false;
 
+  // Track whether the user/app wants music playing.
+  bool _desiredPlaying = false;
+  bool _recovering = false;
+
+  StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<void>? _completeSub;
+
   String _currentTrack = defaultTrack;
   String _lastPlayedTrack =
       defaultTrack; // last track actually loaded into player
@@ -51,6 +59,20 @@ class AudioService {
 
     await _player.setReleaseMode(ReleaseMode.loop);
     await _safeSetAudioContext();
+
+    // Listen for unexpected stops/completions and try to recover if music is desired.
+    _stateSub ??= _player.onPlayerStateChanged.listen((state) {
+      if (_desiredPlaying &&
+          (state == PlayerState.stopped || state == PlayerState.completed)) {
+        _recoverIfNeeded();
+      }
+    });
+
+    _completeSub ??= _player.onPlayerComplete.listen((_) {
+      if (_desiredPlaying) {
+        _recoverIfNeeded();
+      }
+    });
 
     final prefs = await SharedPreferences.getInstance();
     _currentTrack = prefs.getString(_kSelectedTrack) ?? defaultTrack;
@@ -91,6 +113,8 @@ class AudioService {
   Future<void> playCurrent() async {
     await init();
 
+    _desiredPlaying = true;
+
     final pausedSameTrack = _player.state == PlayerState.paused &&
         _lastPlayedTrack == _currentTrack;
 
@@ -113,6 +137,8 @@ class AudioService {
   Future<void> resumeOrPlayCurrent() async {
     await init();
 
+    _desiredPlaying = true;
+
     final pausedSameTrack = _player.state == PlayerState.paused &&
         _lastPlayedTrack == _currentTrack;
 
@@ -126,6 +152,8 @@ class AudioService {
 
   Future<void> pause() async {
     await init();
+
+    _desiredPlaying = false;
     try {
       await _player.pause();
     } catch (_) {}
@@ -133,6 +161,8 @@ class AudioService {
 
   Future<void> stop() async {
     await init();
+
+    _desiredPlaying = false;
     await _safeStop();
   }
 
@@ -216,7 +246,32 @@ class AudioService {
     } catch (_) {}
   }
 
+  Future<void> _recoverIfNeeded() async {
+    if (_recovering) return;
+    _recovering = true;
+    try {
+      // Give the system a moment to restore audio focus after interruptions.
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await _safeSetAudioContext();
+
+      // If paused on same track, try resume; otherwise re-load current asset.
+      if (_player.state == PlayerState.paused &&
+          _lastPlayedTrack == _currentTrack) {
+        await _safeResume();
+      } else if (_desiredPlaying) {
+        await _safeStop();
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        await _safePlayAsset(_currentTrack);
+        _lastPlayedTrack = _currentTrack;
+      }
+    } finally {
+      _recovering = false;
+    }
+  }
+
   void dispose() {
+    _stateSub?.cancel();
+    _completeSub?.cancel();
     _player.dispose();
   }
 }

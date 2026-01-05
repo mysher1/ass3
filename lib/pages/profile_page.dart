@@ -48,7 +48,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
     setState(() => _loggingOut = true);
     try {
-      await _authRepo.logout();
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
@@ -88,7 +87,6 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _deleting = true);
     try {
       await _authRepo.deleteAccount(userId: widget.userId);
-      await _authRepo.logout();
 
       if (!mounted) return;
       _showSnack('Account deleted');
