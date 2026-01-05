@@ -6,6 +6,33 @@ import 'home_page.dart';
 import 'signup_page.dart';
 import '../services/audio_service.dart';
 
+class _HomeWithAutoplay extends StatefulWidget {
+  const _HomeWithAutoplay({required this.userId, required this.username});
+
+  final int userId;
+  final String username;
+
+  @override
+  State<_HomeWithAutoplay> createState() => _HomeWithAutoplayState();
+}
+
+class _HomeWithAutoplayState extends State<_HomeWithAutoplay> {
+  @override
+  void initState() {
+    super.initState();
+    // Start/restore background music after Home is mounted to reduce
+    // no-sound issues during route transitions.
+    Future.microtask(() async {
+      await AudioService.instance.restoreAndMaybeAutoPlay();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return HomePage(userId: widget.userId, username: widget.username);
+  }
+}
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -50,14 +77,11 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
 
-      // Restore & auto-play last selected background music (if enabled).
-      await AudioService.instance.restoreAndMaybeAutoPlay();
-
       // Success: go to Home (pushReplacement prevents going back to Login).
       await Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => HomePage(userId: userId, username: username),
+          builder: (_) => _HomeWithAutoplay(userId: userId, username: username),
         ),
       );
     } catch (e) {

@@ -81,6 +81,8 @@ class _BootstrapPageState extends State<_BootstrapPage> {
 
   Future<void> _init() async {
     try {
+      // Prepare audio service (loads saved track/volume, sets audio context)
+      await AudioService.instance.init();
       final userId = await _authRepo.getCurrentUserId();
       final username = await _authRepo.getCurrentUsername();
 

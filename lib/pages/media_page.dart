@@ -72,7 +72,7 @@ class _MediaPageState extends State<MediaPage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() {
       _selectedTrack = value;
-      _isPlaying = true;
+      _isPlaying = _audio.isPlaying;
     });
   }
 
@@ -83,13 +83,7 @@ class _MediaPageState extends State<MediaPage> with WidgetsBindingObserver {
       await _audio.resumeOrPlayCurrent();
     }
     if (!mounted) return;
-    setState(() => _isPlaying = !_isPlaying);
-  }
-
-  Future<void> _stop() async {
-    await _audio.stop();
-    if (!mounted) return;
-    setState(() => _isPlaying = false);
+    setState(() => _isPlaying = _audio.isPlaying);
   }
 
   @override

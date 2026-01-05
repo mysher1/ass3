@@ -1,23 +1,27 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// A singleton service that manages background music playback
-/// and persists the user's selected track (asset) + volume.
+/// Background music service (singleton).
 ///
-/// This version also sets an AudioContext to reduce "plays then suddenly stops"
-/// issues caused by audio focus changes, and resets the player before replaying.
+/// Fixes for common issues:
+/// - "Plays then randomly stops": set AudioContext + safe stop/play retry.
+/// - "After stopping, play has no sound": reset state before play + retry.
+/// - "Pause then play restarts from beginning": resume when paused & same track.
+/// - "Change track while paused has no sound": detect track change and re-load asset.
+///
+/// NOTE:
+/// AssetSource paths MUST NOT include 'assets/' prefix.
+/// Example: assets/audio/Glass.mp3 -> 'audio/Glass.mp3'
 class AudioService {
   AudioService._();
   static final AudioService instance = AudioService._();
 
-  // ===== Persist keys =====
+  // Persist keys
   static const String _kSelectedTrack = 'bgm_selected_track';
   static const String _kVolume = 'bgm_volume';
   static const String _kAutoPlay = 'bgm_autoplay';
 
-  // ===== Defaults =====
-  /// IMPORTANT: AssetSource path should NOT include "assets/" prefix.
-  /// If your asset is assets/audio/bgm1.mp3, use "audio/bgm1.mp3".
+  // Defaults
   static const String defaultTrack = 'audio/bgm.mp3';
   static const double defaultVolume = 0.6;
   static const bool defaultAutoPlay = true;
@@ -26,45 +30,38 @@ class AudioService {
   bool _inited = false;
 
   String _currentTrack = defaultTrack;
+  String _lastPlayedTrack =
+      defaultTrack; // last track actually loaded into player
   double _volume = defaultVolume;
   bool _autoPlay = defaultAutoPlay;
 
-  // Track actually loaded/played in the player last time.
-  String _lastPlayedTrack = defaultTrack;
-
-  // ===== Public getters =====
+  // Getters
   String get currentTrack => _currentTrack;
   double get volume => _volume;
   bool get autoPlay => _autoPlay;
 
   bool get isPlaying => _player.state == PlayerState.playing;
-
   PlayerState get state => _player.state;
 
-  // ===== Init / Restore =====
-  /// Initializes player + loads persisted settings (track/volume/autoplay).
+  /// Initialize player + load persisted settings (track/volume/autoplay).
   /// Safe to call multiple times.
   Future<void> init() async {
     if (_inited) return;
     _inited = true;
 
-    // Loop background music
     await _player.setReleaseMode(ReleaseMode.loop);
-
-    // Reduce random stops by configuring audio focus / usage as "media/music".
-    // (If some platforms ignore this, it won't break playback.)
     await _safeSetAudioContext();
 
     final prefs = await SharedPreferences.getInstance();
     _currentTrack = prefs.getString(_kSelectedTrack) ?? defaultTrack;
+    _lastPlayedTrack = _currentTrack;
     _volume = prefs.getDouble(_kVolume) ?? defaultVolume;
     _autoPlay = prefs.getBool(_kAutoPlay) ?? defaultAutoPlay;
 
-    await _player.setVolume(_volume);
+    await _safeSetVolume(_volume);
   }
 
-  /// Loads saved track/volume/autoplay and starts playing if autoPlay==true.
-  /// Call this from main.dart (after login or app bootstrap).
+  /// Call after app bootstrap/login if you want to auto-play when enabled.
   Future<void> restoreAndMaybeAutoPlay() async {
     await init();
     if (_autoPlay) {
@@ -72,9 +69,7 @@ class AudioService {
     }
   }
 
-  // ===== Track selection =====
-  /// Set current track (asset path) and persist it.
-  /// Optionally switch immediately (recommended for "Change Music" action).
+  /// Persist selected track and optionally switch immediately.
   Future<void> setTrack(
     String assetPath, {
     bool switchImmediately = true,
@@ -90,83 +85,67 @@ class AudioService {
     }
   }
 
-  /// Plays currently selected track (looping).
-  ///
-  /// IMPORTANT: We stop() before play() to avoid a stuck internal state after
-  /// audio focus interruptions (common cause of "no sound when pressing play").
+  /// Play the current track.
+  /// - If paused and track unchanged -> resume
+  /// - Otherwise -> stop + play (fresh load)
   Future<void> playCurrent() async {
     await init();
 
-    // If we're paused, only resume when it's the same track as last played.
-    // If the user changed tracks while paused, we must load the new asset.
-    if (_player.state == PlayerState.paused &&
-        _lastPlayedTrack == _currentTrack) {
-      await _player.resume();
+    final pausedSameTrack = _player.state == PlayerState.paused &&
+        _lastPlayedTrack == _currentTrack;
+
+    if (pausedSameTrack) {
+      await _safeResume();
       return;
     }
 
-    // Reset state first (helps recover after interruptions)
-    try {
-      await _player.stop();
-    } catch (_) {}
+    // Reset state first (helps recover after interruptions / no-sound bug)
+    await _safeStop();
 
-    try {
-      await _player.play(AssetSource(_currentTrack));
-      _lastPlayedTrack = _currentTrack;
-    } catch (_) {
-      // One retry after re-applying audio context (defensive)
-      await _safeSetAudioContext();
-      await _player.play(AssetSource(_currentTrack));
-      _lastPlayedTrack = _currentTrack;
-    }
+    // Small delay helps some devices recover audio focus after route changes
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    await _safePlayAsset(_currentTrack);
+    _lastPlayedTrack = _currentTrack;
   }
 
-  /// Resume playback if paused; otherwise play current track from the start.
+  /// Used by UI: if paused -> resume; else -> play current (from start).
   Future<void> resumeOrPlayCurrent() async {
     await init();
-    if (_player.state == PlayerState.paused) {
-      await _player.resume();
+
+    final pausedSameTrack = _player.state == PlayerState.paused &&
+        _lastPlayedTrack == _currentTrack;
+
+    if (pausedSameTrack) {
+      await _safeResume();
       return;
     }
+
     await playCurrent();
   }
 
-  /// Resume playback (only meaningful if paused).
-  Future<void> resume() async {
-    await init();
-    if (_player.state == PlayerState.paused) {
-      await _player.resume();
-    }
-  }
-
-  /// Convenience:  /// Convenience: play a specific asset immediately (also sets as current & persists).
-  Future<void> playAsset(String assetPath) async {
-    await setTrack(assetPath, switchImmediately: true);
-  }
-
-  // ===== Playback controls =====
   Future<void> pause() async {
     await init();
-    await _player.pause();
+    try {
+      await _player.pause();
+    } catch (_) {}
   }
 
   Future<void> stop() async {
     await init();
-    await _player.stop();
+    await _safeStop();
   }
 
-  // ===== Settings =====
   Future<void> setVolume(double v) async {
     await init();
     _volume = v.clamp(0.0, 1.0);
 
-    await _player.setVolume(_volume);
+    await _safeSetVolume(_volume);
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_kVolume, _volume);
   }
 
-  /// Persist autoplay preference (whether to auto-play on app start/login).
   Future<void> setAutoPlay(bool value) async {
     await init();
     _autoPlay = value;
@@ -175,7 +154,47 @@ class AudioService {
     await prefs.setBool(_kAutoPlay, _autoPlay);
   }
 
-  /// Configure audio focus / usage to be "media/music".
+  // =========================
+  // Internal "safe" helpers
+  // =========================
+
+  Future<void> _safePlayAsset(String assetPath) async {
+    try {
+      await _player.play(AssetSource(assetPath));
+      return;
+    } catch (_) {}
+
+    // Retry after re-applying audio context
+    try {
+      await _safeSetAudioContext();
+      await _player.play(AssetSource(assetPath));
+    } catch (_) {}
+  }
+
+  Future<void> _safeStop() async {
+    try {
+      await _player.stop();
+    } catch (_) {}
+  }
+
+  Future<void> _safeResume() async {
+    try {
+      await _player.resume();
+      return;
+    } catch (_) {}
+
+    // If resume fails (e.g., focus loss), re-load current asset
+    await _safeStop();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await _safePlayAsset(_currentTrack);
+  }
+
+  Future<void> _safeSetVolume(double v) async {
+    try {
+      await _player.setVolume(v);
+    } catch (_) {}
+  }
+
   Future<void> _safeSetAudioContext() async {
     try {
       await _player.setAudioContext(
@@ -194,9 +213,7 @@ class AudioService {
           ),
         ),
       );
-    } catch (_) {
-      // Ignore if platform / version doesn't support some fields.
-    }
+    } catch (_) {}
   }
 
   void dispose() {

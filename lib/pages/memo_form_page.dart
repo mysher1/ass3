@@ -39,6 +39,8 @@ class _MemoFormPageState extends State<MemoFormPage> {
   int? _locationId;
   String? _locationLabel;
 
+  bool _changed = false;
+
   @override
   void initState() {
     super.initState();
@@ -89,11 +91,28 @@ class _MemoFormPageState extends State<MemoFormPage> {
     });
   }
 
-  void _clearLocation() {
+  Future<void> _clearLocation() async {
     setState(() {
       _locationId = null;
       _locationLabel = null;
     });
+    _changed = true;
+
+    // Persist immediately for existing memo so the location won't "come back" after reopening.
+    if (widget.memo != null) {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final updated = widget.memo!.copyWith(
+        updatedAt: now,
+        clearLocation: true,
+      );
+      await _memoRepo.updateMemo(updated);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location removed.')),
+        );
+      }
+    }
   }
 
   Future<void> _viewLocationOnMap() async {
@@ -137,6 +156,7 @@ class _MemoFormPageState extends State<MemoFormPage> {
         locationId: _locationId,
         // Keep label so UI can show immediately; DB is still source of truth via JOIN later.
         locationLabel: _locationLabel,
+        clearLocation: _locationId == null,
       );
       await _memoRepo.updateMemo(updatedMemo);
     }
@@ -152,75 +172,83 @@ class _MemoFormPageState extends State<MemoFormPage> {
     final shownLabel = (_locationLabel ?? '').trim();
     final hasLocation = _locationId != null;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(isEdit ? 'Edit Memo' : 'New Memo'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.check),
-            onPressed: _save,
+    return WillPopScope(
+        onWillPop: () async {
+          if (_changed) {
+            Navigator.pop(context, true);
+            return false;
+          }
+          return true;
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(isEdit ? 'Edit Memo' : 'New Memo'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.check),
+                onPressed: _save,
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _contentController,
-              maxLines: 6,
-              decoration: const InputDecoration(
-                labelText: 'Content',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
+          body: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: hasLocation ? _viewLocationOnMap : null,
-                    child: Text(
-                      hasLocation
-                          ? '📍 ${shownLabel.isNotEmpty ? shownLabel : 'Selected location'}'
-                          : 'No location selected',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        decoration: hasLocation
-                            ? TextDecoration.underline
-                            : TextDecoration.none,
+                TextField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _contentController,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'Content',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: hasLocation ? _viewLocationOnMap : null,
+                        child: Text(
+                          hasLocation
+                              ? '📍 ${shownLabel.isNotEmpty ? shownLabel : 'Selected location'}'
+                              : 'No location selected',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            decoration: hasLocation
+                                ? TextDecoration.underline
+                                : TextDecoration.none,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    OutlinedButton.icon(
+                      onPressed: _pickLocation,
+                      icon: const Icon(Icons.map_outlined),
+                      label: const Text('Location'),
+                    ),
+                    const SizedBox(width: 8),
+                    if (hasLocation)
+                      IconButton(
+                        tooltip: 'Clear location',
+                        onPressed: _clearLocation,
+                        icon: const Icon(Icons.clear),
+                      ),
+                  ],
                 ),
-                OutlinedButton.icon(
-                  onPressed: _pickLocation,
-                  icon: const Icon(Icons.map_outlined),
-                  label: const Text('Location'),
-                ),
-                const SizedBox(width: 8),
-                if (hasLocation)
-                  IconButton(
-                    tooltip: 'Clear location',
-                    onPressed: _clearLocation,
-                    icon: const Icon(Icons.clear),
-                  ),
               ],
             ),
-          ],
-        ),
-      ),
-    );
+          ),
+        ));
   }
 
   @override
