@@ -18,7 +18,6 @@ class AppDatabase {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'memo_app.db');
 
-    // ✅ Bump DB version to support Locations + memo.locationId
     return openDatabase(
       path,
       version: 3,
@@ -28,14 +27,14 @@ class AppDatabase {
     );
   }
 
-  /// Enable FK constraints (recommended when using FOREIGN KEY)
+  /// 启用外键约束
   Future<void> _onConfigure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON');
   }
 
-  /// Called when the database is created for the first time
+  /// 创建数据库表
   Future<void> _onCreate(Database db, int version) async {
-    // users table (accounts)
+    // 1. 用户表
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +44,8 @@ class AppDatabase {
       )
     ''');
 
-    // locations table (for map feature)
+    // 2. 地理位置表
+    // 修改点：在外键处增加了 ON DELETE CASCADE
     await db.execute('''
       CREATE TABLE locations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,11 +54,13 @@ class AppDatabase {
         latitude REAL NOT NULL,
         longitude REAL NOT NULL,
         createdAt TEXT NOT NULL,
-        FOREIGN KEY (userId) REFERENCES users(id)
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       )
     ''');
 
-    // memos table (now supports optional locationId)
+    // 3. 备忘录表
+    // 修改点：为 userId 增加了 ON DELETE CASCADE
+    // 修改点：为 locationId 增加了 ON DELETE SET NULL (防止删除位置时误删备忘录)
     await db.execute('''
       CREATE TABLE memos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,12 +69,11 @@ class AppDatabase {
         content TEXT,
         updatedAt TEXT NOT NULL,
         locationId INTEGER,
-        FOREIGN KEY (userId) REFERENCES users(id),
-        FOREIGN KEY (locationId) REFERENCES locations(id)
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (locationId) REFERENCES locations(id) ON DELETE SET NULL
       )
     ''');
 
-    // Helpful indexes (optional but good)
     await db.execute(
       'CREATE INDEX idx_memos_user_updated ON memos(userId, updatedAt)',
     );
@@ -81,9 +82,8 @@ class AppDatabase {
     );
   }
 
-  /// Handle schema upgrades for existing installs
+  /// 处理版本升级
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // v1 -> v2: add locations table
     if (oldVersion < 2) {
       await db.execute('''
         CREATE TABLE locations (
@@ -93,49 +93,24 @@ class AppDatabase {
           latitude REAL NOT NULL,
           longitude REAL NOT NULL,
           createdAt TEXT NOT NULL,
-          FOREIGN KEY (userId) REFERENCES users(id)
+          FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
         )
       ''');
-      await db.execute(
-        'CREATE INDEX idx_locations_user_created ON locations(userId, createdAt)',
-      );
     }
 
-    // v2 -> v3: add locationId column to memos
     if (oldVersion < 3) {
-      await db.execute('ALTER TABLE memos ADD COLUMN locationId INTEGER;');
-      // Existing rows will have NULL locationId (no location bound)
+      // 检查列是否存在，防止重复添加
+      var columns = await db.rawQuery('PRAGMA table_info(memos)');
+      bool columnExists =
+          columns.any((column) => column['name'] == 'locationId');
+
+      if (!columnExists) {
+        await db.execute('ALTER TABLE memos ADD COLUMN locationId INTEGER;');
+      }
+
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_memos_user_updated ON memos(userId, updatedAt)',
       );
     }
-  }
-
-  /// Delete a user account safely by removing dependent rows first.
-  /// This avoids FOREIGN KEY constraint failures even without ON DELETE CASCADE.
-  Future<void> deleteUserAccount(int userId) async {
-    final db = await database;
-    await db.transaction((txn) async {
-      // Delete memos first (they may reference locations)
-      await txn.delete(
-        'memos',
-        where: 'userId = ?',
-        whereArgs: [userId],
-      );
-
-      // Delete locations owned by this user
-      await txn.delete(
-        'locations',
-        where: 'userId = ?',
-        whereArgs: [userId],
-      );
-
-      // Finally delete the user record
-      await txn.delete(
-        'users',
-        where: 'id = ?',
-        whereArgs: [userId],
-      );
-    });
   }
 }

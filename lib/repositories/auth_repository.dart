@@ -4,18 +4,17 @@ import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/app_database.dart';
-import '../services/audio_service.dart';
 
 class AuthRepository {
   static const String _usersTable = 'users';
   static const String _memosTable = 'memos';
+  // 新增：定义 locations 表名常量，对应 v7 分支新增的表
+  static const String _locationsTable = 'locations';
 
   static const String _prefCurrentUserId = 'currentUserId';
   static const String _prefCurrentUsername = 'currentUsername';
 
   /// Sign up: create a local account (SQLite users table)
-  ///
-  /// Returns the new user id
   Future<int> signup({
     required String username,
     required String password,
@@ -61,8 +60,6 @@ class AuthRepository {
   }
 
   /// Login: verify username and password
-  ///
-  /// Returns userId on success; throws exception on failure
   Future<int> login({
     required String username,
     required String password,
@@ -104,20 +101,9 @@ class AuthRepository {
 
   /// Sign out: clear locally stored login state
   Future<void> logout() async {
-    // Stop background music when logging out
-    try {
-      await AudioService.instance.stop();
-    } catch (_) {}
-
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_prefCurrentUserId);
     await sp.remove(_prefCurrentUsername);
-
-    // Extra safety: if an interruption happened during the first stop attempt,
-    // try once more after state is cleared.
-    try {
-      await AudioService.instance.stop();
-    } catch (_) {}
   }
 
   /// Get current logged-in user id
@@ -132,17 +118,22 @@ class AuthRepository {
     return sp.getString(_prefCurrentUsername);
   }
 
-  /// Delete account: remove all memos of the user + delete user record
-  ///
-  /// This action is irreversible
+  /// Delete account: remove all related data + delete user record
+  /// 修改：在事务中增加了对 locations 表的清理 [cite: 3, 4]
   Future<void> deleteAccount({required int userId}) async {
     final db = await AppDatabase.instance.database;
 
     await db.transaction((txn) async {
-      // 1) Delete all memos of the user
+      // 1) 首先删除该用户的所有备忘录 [cite: 4]
+      // 备注：如果 memos 关联了 location，必须先删 memos
       await txn.delete(_memosTable, where: 'userId = ?', whereArgs: [userId]);
 
-      // 2) Delete user record
+      // 2) 新增：删除该用户的所有地理位置数据 (解决 v7 分支的报错关键)
+      // 只有清理掉所有引用了该 userId 的外键记录，SQLite 才能安全删除 user 记录
+      await txn
+          .delete(_locationsTable, where: 'userId = ?', whereArgs: [userId]);
+
+      // 3) 最后删除用户记录 [cite: 4]
       final deleted = await txn.delete(
         _usersTable,
         where: 'id = ?',
@@ -154,7 +145,7 @@ class AuthRepository {
       }
     });
 
-    // Clear login state
+    // 清除本地登录状态 [cite: 4]
     await logout();
   }
 
