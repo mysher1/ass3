@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../repositories/auth_repository.dart';
+import '../services/audio_service.dart';
 import 'home_page.dart';
 import 'signup_page.dart';
 
@@ -359,5 +360,35 @@ class _TipCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Wrapper that triggers background-music auto-play after a successful login.
+class _HomeWithAutoplay extends StatefulWidget {
+  final int userId;
+  final String username;
+
+  const _HomeWithAutoplay({
+    required this.userId,
+    required this.username,
+  });
+
+  @override
+  State<_HomeWithAutoplay> createState() => _HomeWithAutoplayState();
+}
+
+class _HomeWithAutoplayState extends State<_HomeWithAutoplay> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await AudioService.instance.restoreAndMaybeAutoPlay();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return HomePage(userId: widget.userId, username: widget.username);
   }
 }

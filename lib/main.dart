@@ -66,11 +66,9 @@ class _BootstrapPage extends StatefulWidget {
   State<_BootstrapPage> createState() => _BootstrapPageState();
 }
 
-class _BootstrapPageState extends State<_BootstrapPage>
-    with WidgetsBindingObserver {
+class _BootstrapPageState extends State<_BootstrapPage> {
   final _authRepo = AuthRepository();
   bool _loading = true;
-  bool _wasPlaying = false;
 
   int? _userId;
   String? _username;
@@ -78,46 +76,19 @@ class _BootstrapPageState extends State<_BootstrapPage>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _init();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Location permission dialogs / map navigation can trigger pause/resume,
-    // which may interrupt audio focus on some devices/emulators.
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
-      _wasPlaying = AudioService.instance.isPlaying;
-      return;
-    }
-
-    if (state == AppLifecycleState.resumed) {
-      Future.microtask(() async {
-        await AudioService.instance.init();
-        if (_wasPlaying) {
-          await AudioService.instance.resumeOrPlayCurrent();
-        }
-      });
-    }
   }
 
   Future<void> _init() async {
     try {
-      // Prepare audio service (loads saved track/volume, sets audio context)
-      await AudioService.instance.init();
       final userId = await _authRepo.getCurrentUserId();
       final username = await _authRepo.getCurrentUsername();
-
-      // Auto-restore & play last selected background music after login
-      if (userId != null && username != null && username.trim().isNotEmpty) {
-        await AudioService.instance.restoreAndMaybeAutoPlay();
+      // Auto-play (if enabled) when the app starts and a user session exists.
+      // Run after the first frame to avoid audio-focus issues during startup.
+      if (userId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          await AudioService.instance.restoreAndMaybeAutoPlay();
+        });
       }
 
       if (!mounted) return;

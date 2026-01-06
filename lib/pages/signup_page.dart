@@ -21,7 +21,7 @@ class _HomeWithAutoplayState extends State<_HomeWithAutoplay> {
     super.initState();
     // Start/restore background music after Home is mounted to reduce
     // no-sound issues during route transitions.
-    Future.microtask(() async {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       await AudioService.instance.restoreAndMaybeAutoPlay();
     });
